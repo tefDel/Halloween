@@ -9,10 +9,11 @@ public class Ghost : MonoBehaviour
     public float chaseSpeed = 2f;
     public float attackDistance = 1.2f;
     public float jumpscareDistance = 0.8f;
-
+    public GameObject visualRoot;
     [Header("Animaciones")]
     public Animator animator;
-
+    [Header("Orientación")]
+    public Transform cameraFocusPoint;
     [Header("Jumpscare")]
     public Transform faceTarget; // punto frente al rostro del fantasma
 
@@ -64,22 +65,16 @@ public class Ghost : MonoBehaviour
             return;
         }
 
-        // Si está dentro de rango de ataque, detener movimiento para poder reproducir la animación
+        // Si está dentro de rango de ataque, detener y atacar
         if (flatDistance <= attackDistance && !hasAttacked)
         {
             agent.isStopped = true;
             hasAttacked = true;
             TriggerAttack();
-            // no 'return' aquí; queremos que la rotación continúe para mirar a la cámara
         }
-        else
+        else if (flatDistance > attackDistance + resumeMovementBuffer)
         {
-            // Si está fuera del rango de ataque + buffer, reanudar movimiento
-            if (flatDistance > attackDistance + resumeMovementBuffer)
-            {
-                if (agent.isStopped)
-                    agent.isStopped = false;
-            }
+            agent.isStopped = false;
         }
 
         // Solo perseguir si no está detenido por ataque/jumpscare/aturdimiento
@@ -89,15 +84,17 @@ public class Ghost : MonoBehaviour
             agent.SetDestination(cam.position);
         }
 
-        // 🔹 Siempre mirar hacia la cámara (solo en eje horizontal) — evitar que quede de espaldas
-        Vector3 lookDir = cam.position - transform.position;
-        lookDir.y = 0f; // evita inclinar la cabeza arriba/abajo
-        if (lookDir.sqrMagnitude > 0.0001f)
+        if (cameraFocusPoint != null)
         {
-            Quaternion targetRot = Quaternion.LookRotation(lookDir);
-            // Rotación suave y limitada en Y para evitar giros raros
-            transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * 6f);
+            Vector3 lookDir = cameraFocusPoint.position - transform.position;
+            lookDir.y = 0f;
+            if (lookDir.sqrMagnitude > 0.0001f)
+            {
+                Quaternion targetRot = Quaternion.LookRotation(lookDir);
+                transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * 6f);
+            }
         }
+
 
         // Animaciones de movimiento (solo si el agente se mueve)
         bool isMoving = agent.velocity.sqrMagnitude > 0.01f && !agent.isStopped;
@@ -197,8 +194,11 @@ public class Ghost : MonoBehaviour
     }
 
     // 🔹 Mantengo tu método original
-    internal void SetVisible(bool visible)
+
+    public void SetVisible(bool visible)
     {
-        gameObject.SetActive(visible);
+        if (visualRoot != null)
+            visualRoot.SetActive(visible);
     }
+
 }

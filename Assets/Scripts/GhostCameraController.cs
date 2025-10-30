@@ -6,22 +6,19 @@ using UnityEngine.XR;
 
 public class GhostCameraController : MonoBehaviour
 {
-    [Header("Cámaras")]
+    [Header("Cámara")]
     public Camera mainCamera;
-    public Camera ghostCamera;
 
     [Header("UI de la cámara fantasma")]
     public Canvas ghostCameraCanvas;
 
     [Header("Sistema fantasma")]
     public float captureRange = 15f;
-    public LayerMask ghostLayer;
+    public string ghostTag = "Ghost";
 
     [Header("Controles PC")]
     public KeyCode toggleCameraKey = KeyCode.C;
     public KeyCode capturePhotoKey = KeyCode.Space;
-    public bool useMouseLook = true;
-    public float mouseSensitivity = 2f;
 
     [Header("Controles VR")]
     public UnityEngine.XR.InputFeatureUsage<bool> vrToggleButton = UnityEngine.XR.CommonUsages.primaryButton;
@@ -33,9 +30,6 @@ public class GhostCameraController : MonoBehaviour
     private float lastToggleTime = 0f;
     private float lastCaptureTime = 0f;
     private float buttonCooldown = 0.3f;
-    private float mouseX = 0f;
-    private float mouseY = 0f;
-    private Quaternion originalMainCameraRotation;
 
     void Awake()
     {
@@ -44,21 +38,10 @@ public class GhostCameraController : MonoBehaviour
 
     void Start()
     {
-        if (mainCamera != null)
-            originalMainCameraRotation = mainCamera.transform.localRotation;
-
-        // Intentar obtener el dispositivo VR derecho
         UnityEngine.XR.InputDevice rightHandDevice = InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
-        if (rightHandDevice.isValid)
-        {
-            isVRMode = true;
-            Debug.Log("🥽 Modo VR detectado");
-        }
-        else
-        {
-            isVRMode = false;
-            Debug.Log("🖥️ Modo PC detectado");
-        }
+        isVRMode = rightHandDevice.isValid;
+
+        Debug.Log(isVRMode ? "🥽 Modo VR detectado" : "🖥️ Modo PC detectado");
 
         SetAllGhostsVisible(false);
         SetCameraActive(false);
@@ -69,25 +52,14 @@ public class GhostCameraController : MonoBehaviour
         if (mainCamera == null)
             mainCamera = Camera.main;
 
-        if (ghostCamera == null)
-        {
-            Camera[] cameras = FindObjectsOfType<Camera>(includeInactive: true);
-            foreach (var cam in cameras)
-            {
-                if (cam != mainCamera)
-                {
-                    ghostCamera = cam;
-                    break;
-                }
-            }
-        }
-
         if (ghostCameraCanvas == null)
             ghostCameraCanvas = GameObject.Find("GhostCameraCanvas")?.GetComponent<Canvas>();
     }
 
     void Update()
     {
+        Debug.Log("📡 Update activo");
+
         if (isVRMode)
             DetectVRToggle();
         else
@@ -99,15 +71,8 @@ public class GhostCameraController : MonoBehaviour
                 DetectVRCapture();
             else
                 DetectPCCapture();
-        }
 
-        if (!isVRMode && isCameraActive && useMouseLook)
-            UpdateMouseLook();
-
-        if (!isVRMode && Input.GetKeyDown(KeyCode.Escape))
-        {
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
+            DetectGhostInSight(); // 👻 Detectar si se apunta a un fantasma
         }
     }
 
@@ -155,15 +120,6 @@ public class GhostCameraController : MonoBehaviour
         }
     }
 
-    void UpdateMouseLook()
-    {
-        if (ghostCamera == null) return;
-        mouseX += Input.GetAxis("Mouse X") * mouseSensitivity;
-        mouseY -= Input.GetAxis("Mouse Y") * mouseSensitivity;
-        mouseY = Mathf.Clamp(mouseY, -90f, 90f);
-        ghostCamera.transform.localRotation = Quaternion.Euler(mouseY, mouseX, 0f);
-    }
-
     void ToggleCamera()
     {
         SetCameraActive(!isCameraActive);
@@ -172,36 +128,7 @@ public class GhostCameraController : MonoBehaviour
     void SetCameraActive(bool active)
     {
         isCameraActive = active;
-
-        if (mainCamera != null && ghostCamera != null)
-        {
-            if (active)
-            {
-                mainCamera.enabled = false;
-                ghostCamera.enabled = true;
-
-                if (!isVRMode)
-                {
-                    mouseX = 0f;
-                    mouseY = 0f;
-                    ghostCamera.transform.localRotation = Quaternion.identity;
-
-                    if (useMouseLook)
-                    {
-                        Cursor.lockState = CursorLockMode.Locked;
-                        Cursor.visible = false;
-                    }
-                }
-            }
-            else
-            {
-                ghostCamera.enabled = false;
-                mainCamera.enabled = true;
-
-                if (!isVRMode)
-                    mainCamera.transform.localRotation = originalMainCameraRotation;
-            }
-        }
+        Debug.Log("🟢 SetCameraActive llamado con: " + active);
 
         if (ghostCameraCanvas != null)
             ghostCameraCanvas.gameObject.SetActive(active);
@@ -215,14 +142,16 @@ public class GhostCameraController : MonoBehaviour
             SendHapticImpulse(rightController, intensity, duration);
         }
 
-        Debug.Log(active ? "📷 Cámara fantasma ACTIVADA" : "📷 Cámara fantasma DESACTIVADA");
+        Debug.Log(active ? "📷 Modo cámara ACTIVADO" : "📷 Modo cámara DESACTIVADO");
     }
 
     void CapturePhoto()
     {
-        if (ghostCamera == null)
+        Debug.Log("📸 Intentando capturar foto");
+
+        if (mainCamera == null)
         {
-            Debug.LogWarning("⚠️ Ghost Camera no asignada!");
+            Debug.LogWarning("⚠️ Main Camera no asignada!");
             return;
         }
 
@@ -231,9 +160,9 @@ public class GhostCameraController : MonoBehaviour
 
         foreach (Ghost ghost in allGhosts)
         {
-            if (IsInGhostCameraView(ghost.transform))
+            if (IsInCameraView(ghost.transform))
             {
-                ghost.Stun(); // 👻 Aturde al fantasma
+                ghost.Stun();
                 ghostsCaptured++;
             }
         }
@@ -255,17 +184,45 @@ public class GhostCameraController : MonoBehaviour
         }
     }
 
-    bool IsInGhostCameraView(Transform target)
+    void DetectGhostInSight()
     {
-        if (ghostCamera == null) return false;
-
-        Vector3 viewportPoint = ghostCamera.WorldToViewportPoint(target.position);
-        if (viewportPoint.z > 0 && viewportPoint.x > 0.25f && viewportPoint.x < 0.75f && viewportPoint.y > 0.25f && viewportPoint.y < 0.75f)
+        Ray ray = new Ray(mainCamera.transform.position, mainCamera.transform.forward);
+        if (Physics.Raycast(ray, out RaycastHit hit, captureRange))
         {
-            float distance = Vector3.Distance(ghostCamera.transform.position, target.position);
+            Debug.Log("🔦 Raycast golpeó: " + hit.transform.name);
+
+            if (hit.transform.CompareTag(ghostTag))
+            {
+                Ghost ghost = hit.transform.GetComponent<Ghost>();
+                if (ghost != null)
+                {
+                    ghost.SetVisible(true);
+                    Debug.Log("👻 Fantasma visible activado");
+                }
+            }
+        }
+        else
+        {
+            Debug.Log("🌫️ Raycast no golpeó nada");
+        }
+    }
+
+    bool IsInCameraView(Transform target)
+    {
+        if (mainCamera == null) return false;
+
+        Vector3 viewportPoint = mainCamera.WorldToViewportPoint(target.position);
+
+        if (viewportPoint.z > 0 &&
+            viewportPoint.x > 0.25f && viewportPoint.x < 0.75f &&
+            viewportPoint.y > 0.25f && viewportPoint.y < 0.75f)
+        {
+            float distance = Vector3.Distance(mainCamera.transform.position, target.position);
             if (distance <= captureRange)
             {
-                if (Physics.Raycast(ghostCamera.transform.position, target.position - ghostCamera.transform.position, out RaycastHit hit, distance, ~0, QueryTriggerInteraction.Ignore))
+                if (Physics.Raycast(mainCamera.transform.position,
+                    target.position - mainCamera.transform.position,
+                    out RaycastHit hit, distance, ~0, QueryTriggerInteraction.Ignore))
                 {
                     return hit.transform == target || hit.transform.IsChildOf(target);
                 }
@@ -276,6 +233,8 @@ public class GhostCameraController : MonoBehaviour
 
     void SetAllGhostsVisible(bool visible)
     {
+        Debug.Log("👻 SetAllGhostsVisible llamado con: " + visible);
+
         Ghost[] ghosts = FindObjectsOfType<Ghost>();
         foreach (Ghost ghost in ghosts)
             ghost.SetVisible(visible);
@@ -291,11 +250,11 @@ public class GhostCameraController : MonoBehaviour
 
     IEnumerator FlashEffect()
     {
-        if (ghostCamera == null) yield break;
+        if (mainCamera == null) yield break;
 
         GameObject flashQuad = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        flashQuad.transform.SetParent(ghostCamera.transform);
-        flashQuad.transform.localPosition = new Vector3(0, 0, ghostCamera.nearClipPlane + 0.01f);
+        flashQuad.transform.SetParent(mainCamera.transform);
+        flashQuad.transform.localPosition = new Vector3(0, 0, mainCamera.nearClipPlane + 0.01f);
         flashQuad.transform.localRotation = Quaternion.identity;
         flashQuad.transform.localScale = new Vector3(2f, 2f, 1);
 
