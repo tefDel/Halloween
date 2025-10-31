@@ -11,6 +11,10 @@ public class GhostCameraController : MonoBehaviour
 
     [Header("UI de la cámara fantasma")]
     public Canvas ghostCameraCanvas;
+    [Header("UI de progreso de ítems")]
+    public GameObject panelFaltanItems;
+    public GameObject panelTodosItems;
+
 
     [Header("Sistema fantasma")]
     public float captureRange = 15f;
@@ -19,6 +23,18 @@ public class GhostCameraController : MonoBehaviour
     [Header("Controles PC")]
     public KeyCode toggleCameraKey = KeyCode.C;
     public KeyCode capturePhotoKey = KeyCode.Space;
+    [Header("Luz de la cámara")]
+    public GameObject cameraSpotLight; // El GameObject que contiene el componente Light
+
+
+    [Header("Controles PC - Luz")]
+    public KeyCode toggleLightKey = KeyCode.L;
+
+    [Header("Controles VR - Luz")]
+    public UnityEngine.XR.InputFeatureUsage<bool> vrLightToggleButton = UnityEngine.XR.CommonUsages.secondaryButton;
+
+    private float lastLightToggleTime = 0f;
+
 
     [Header("Controles VR")]
     public UnityEngine.XR.InputFeatureUsage<bool> vrToggleButton = UnityEngine.XR.CommonUsages.primaryButton;
@@ -43,6 +59,8 @@ public class GhostCameraController : MonoBehaviour
 
         Debug.Log(isVRMode ? "🥽 Modo VR detectado" : "🖥️ Modo PC detectado");
         Debug.Log("📡 Update activo"); // ✅ Solo se imprime una vez
+        if (cameraSpotLight != null)
+            cameraSpotLight.SetActive(false);
 
         SetAllGhostsVisible(false);
         SetCameraActive(false);
@@ -64,6 +82,11 @@ public class GhostCameraController : MonoBehaviour
             DetectVRToggle();
         else
             DetectPCToggle();
+        if (isVRMode)
+            DetectVRLightToggle();
+        else
+            DetectPCLightToggle();
+
 
         if (isCameraActive)
         {
@@ -73,6 +96,49 @@ public class GhostCameraController : MonoBehaviour
                 DetectPCCapture();
 
             DetectGhostInSight(); // 👻 Detectar si se apunta a un fantasma
+        }
+    }
+    public void UpdateItemPanels(bool allItemsCollected)
+    {
+        if (panelFaltanItems != null)
+            panelFaltanItems.SetActive(!allItemsCollected);
+
+        if (panelTodosItems != null)
+            panelTodosItems.SetActive(allItemsCollected);
+
+        Debug.Log(allItemsCollected ? "✅ Todos los ítems recolectados" : "❌ Faltan ítems");
+    }
+    void DetectVRLightToggle()
+    {
+        UnityEngine.XR.InputDevice rightHandDevice = InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
+        if (rightHandDevice.TryGetFeatureValue(vrLightToggleButton, out bool buttonPressed))
+        {
+            if (buttonPressed && Time.time > lastLightToggleTime + buttonCooldown)
+            {
+                ToggleSpotLight();
+                lastLightToggleTime = Time.time;
+            }
+        }
+    }
+    void DetectPCLightToggle()
+    {
+        if (Input.GetKeyDown(toggleLightKey) && Time.time > lastLightToggleTime + buttonCooldown)
+        {
+            ToggleSpotLight();
+            lastLightToggleTime = Time.time;
+        }
+    }
+
+    void ToggleSpotLight()
+    {
+        if (cameraSpotLight != null)
+        {
+            bool newState = !cameraSpotLight.activeSelf;
+            cameraSpotLight.SetActive(newState);
+            Debug.Log(newState ? "💡 Luz de cámara ACTIVADA" : "🌑 Luz de cámara DESACTIVADA");
+
+            if (isVRMode)
+                SendHapticImpulse(rightController, 0.3f, 0.2f);
         }
     }
 
@@ -246,6 +312,10 @@ public class GhostCameraController : MonoBehaviour
         {
             controller.SendHapticImpulse(amplitude, duration);
         }
+    }
+    public bool IsCanvasActive()
+    {
+        return ghostCameraCanvas != null && ghostCameraCanvas.gameObject.activeSelf;
     }
 
     IEnumerator FlashEffect()

@@ -4,7 +4,7 @@ using System.Collections;
 public class Ghost : MonoBehaviour
 {
     [Header("Movimiento")]
-    public float moveSpeed = 2f;
+    public float moveSpeed = 0f;
     public float rotationSpeed = 6f;
     public float attackDistance = 1.2f;
     public float jumpscareDistance = 0.8f;
@@ -273,7 +273,11 @@ public class Ghost : MonoBehaviour
             }
         }
     }
-
+    public void ActivateMovement()
+    {
+        moveSpeed = 1f;
+        Debug.Log("👻 Fantasma activada: velocidad ahora es 1");
+    }
     private void SafeSetBool(string paramName, bool value)
     {
         if (animator == null)
@@ -581,6 +585,11 @@ public class Ghost : MonoBehaviour
             }
         }
     }
+    public void UpdateSpeed(int itemCount)
+    {
+        moveSpeed = 1f + itemCount; // Velocidad base 1 + cantidad de ítems
+        Debug.Log($"👻 Velocidad actual de la fantasma: {moveSpeed} (por {itemCount} ítems)");
+    }
 
     IEnumerator MoveGhostToCameraTarget(float duration)
     {
@@ -616,9 +625,5 @@ public class Ghost : MonoBehaviour
 
         Debug.Log("✅ Fantasma apareció en el target mirando al jugador con giro 180°");
     }
-
-
-
-
 
 }
