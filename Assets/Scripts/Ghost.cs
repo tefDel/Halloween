@@ -12,6 +12,9 @@ public class Ghost : MonoBehaviour
     public LayerMask obstacleMask;
     public GameObject visualRoot;
 
+    //[Header("Fade en VR")]
+    //public GameObject blackFadeQuad;
+
     [Header("Animaciones")]
     public Animator animator;
     public RuntimeAnimatorController animatorController;
@@ -39,6 +42,8 @@ public class Ghost : MonoBehaviour
     private Vector3 originalCameraPosition;
     private Quaternion originalCameraRotation;
     private bool isCameraMoving = false;
+    [Header("Destino de jumpscare")]
+    public Transform ghostApproachTarget;
 
     void Awake()
     {
@@ -333,7 +338,8 @@ public class Ghost : MonoBehaviour
         // ⭐ Mueve XR Origin hacia el faceTarget apenas inicia el ataque
         if (xrOrigin != null && faceTarget != null)
         {
-            StartCoroutine(MoveXROriginToFaceTarget(1.5f)); // Puedes ajustar la duración
+            StartCoroutine(MoveGhostToCameraTarget(1.5f));
+            // Puedes ajustar la duración
         }
         else
         {
@@ -348,7 +354,6 @@ public class Ghost : MonoBehaviour
     {
         Debug.Log("⏳ Esperando a que termine la animación de ataque");
 
-        // Esperar transición al estado de ataque
         yield return null;
         yield return null;
 
@@ -362,12 +367,6 @@ public class Ghost : MonoBehaviour
             timeout += Time.deltaTime;
         }
 
-        if (timeout >= 1f)
-        {
-            Debug.LogWarning("⚠ Timeout esperando la animación de ataque");
-        }
-
-        // Esperar a que la animación termine
         while (stateInfo.normalizedTime < 0.95f || animator.IsInTransition(0))
         {
             yield return null;
@@ -376,24 +375,42 @@ public class Ghost : MonoBehaviour
 
         Debug.Log("✅ Animación de ataque completada");
 
-        // Esperar a que el sonido termine
+        //// 💥 Activar pantalla negra inmediatamente
+        //if (blackFadeQuad != null)
+        //{
+        //    blackFadeQuad.SetActive(true);
+        //    Debug.Log("🕳 Pantalla negra activada en VR");
+        //}
+
+        if (visualRoot != null)
+        {
+            foreach (Renderer r in visualRoot.GetComponentsInChildren<Renderer>(true))
+            {
+                if (r.enabled)
+                {
+                    r.enabled = false;
+                }
+            }
+            Debug.Log("👻 Fantasma vuelta invisible (renderers apagados)");
+        }
+
+
+
+        // ⏳ Esperar a que el sonido termine
         if (screamerAudio != null && screamerAudio.clip != null)
         {
             Debug.Log("🔊 Esperando a que termine el sonido...");
             yield return new WaitForSeconds(screamerAudio.clip.length);
         }
 
-        // Pantalla negra por 5 segundos
-        Debug.Log("🕳 Pantalla negra por 5 segundos");
-
-        // Si tienes un sistema de fade, puedes activarlo aquí:
-        // FadeToBlack(); ← método opcional si usas Canvas o post-procesamiento
-
+        // ⏳ Esperar 5 segundos con pantalla negra
         yield return new WaitForSeconds(5f);
 
-        // Reiniciar escena
+        // 🔄 Reiniciar escena
         UnityEngine.SceneManagement.SceneManager.LoadScene(sceneToReload);
     }
+
+
 
     // ⭐ Move XR Origin to faceTarget position for attack view
     IEnumerator MoveXROriginToFaceTarget(float duration)
@@ -564,5 +581,44 @@ public class Ghost : MonoBehaviour
             }
         }
     }
+
+    IEnumerator MoveGhostToCameraTarget(float duration)
+    {
+        Debug.Log("👻 === TELETRANSPORTE DE FANTASMA AL TARGET MIRANDO AL JUGADOR CON GIRO 180° ===");
+
+        if (ghostApproachTarget == null || visualRoot == null || Camera.main == null)
+        {
+            Debug.LogError("❌ ghostApproachTarget, visualRoot o Camera.main es NULL");
+            yield break;
+        }
+
+        // Posición exacta del target
+        Vector3 targetPos = ghostApproachTarget.position;
+
+        // Mantener altitud actual de la fantasma
+        targetPos.y = transform.position.y;
+
+        // Calcular rotación para mirar al jugador
+        Vector3 lookDirection = Camera.main.transform.position - targetPos;
+        lookDirection.y = 0f;
+        Quaternion lookRotation = Quaternion.LookRotation(lookDirection);
+
+        // Aplicar giro de 180° en Y
+        Quaternion flippedRotation = lookRotation * Quaternion.Euler(0f, 180f, 0f);
+
+        // 💥 Teletransporte con microtemblor
+        transform.position = targetPos + Random.insideUnitSphere * 0.03f;
+        transform.rotation = flippedRotation;
+        yield return new WaitForSeconds(0.05f);
+
+        transform.position = targetPos;
+        transform.rotation = flippedRotation;
+
+        Debug.Log("✅ Fantasma apareció en el target mirando al jugador con giro 180°");
+    }
+
+
+
+
 
 }
