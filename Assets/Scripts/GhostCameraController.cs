@@ -42,6 +42,7 @@ public class GhostCameraController : MonoBehaviour
         isVRMode = rightHandDevice.isValid;
 
         Debug.Log(isVRMode ? "🥽 Modo VR detectado" : "🖥️ Modo PC detectado");
+        Debug.Log("📡 Update activo"); // ✅ Solo se imprime una vez
 
         SetAllGhostsVisible(false);
         SetCameraActive(false);
@@ -58,7 +59,6 @@ public class GhostCameraController : MonoBehaviour
 
     void Update()
     {
-        Debug.Log("📡 Update activo");
 
         if (isVRMode)
             DetectVRToggle();

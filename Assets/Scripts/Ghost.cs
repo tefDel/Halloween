@@ -1,167 +1,330 @@
 ﻿using UnityEngine;
-using UnityEngine.AI;
 using System.Collections;
 
 public class Ghost : MonoBehaviour
 {
     [Header("Movimiento")]
-    public NavMeshAgent agent;
-    public float chaseSpeed = 2f;
+    public float moveSpeed = 2f;
+    public float rotationSpeed = 6f;
     public float attackDistance = 1.2f;
     public float jumpscareDistance = 0.8f;
+    public float obstacleAvoidanceDistance = 1.5f;
+    public LayerMask obstacleMask;
     public GameObject visualRoot;
+
     [Header("Animaciones")]
     public Animator animator;
-    [Header("Orientación")]
-    public Transform cameraFocusPoint;
+    public RuntimeAnimatorController animatorController;
+
     [Header("Jumpscare")]
-    public Transform faceTarget; // punto frente al rostro del fantasma
+    public Transform faceTarget;
+
+    [Header("Screamer Final")]
+    public AudioSource screamerAudio;
+    public Light[] flickerLights;
+    public float flickerDuration = 2f;
+    public string sceneToReload = "FatalFrane";
 
     private bool isStunned = false;
     private bool hasAttacked = false;
     private bool hasTriggeredJumpscare = false;
+    private bool hasPlayedAttackAnimation = false;
+    private bool hasTriggeredFinalAttack = false;  // Prevents repeating the final attack
 
-    // buffer para evitar cambios bruscos de estado al cruzar el límite
-    private float resumeMovementBuffer = 0.15f;
+    [Header("Debug")]
+    public bool debugMode = false;
+
+    void Awake()
+    {
+        Debug.Log($"🔵 AWAKE llamado - GameObject activo: {gameObject.activeSelf}");
+        TryInitializeAnimator("Awake");
+    }
+
+    void OnEnable()
+    {
+        Debug.Log($"🟢 ON_ENABLE llamado - GameObject activo: {gameObject.activeSelf}");
+        TryInitializeAnimator("OnEnable");
+    }
 
     void Start()
     {
         if (animator == null)
-            animator = GetComponent<Animator>();
+        {
+            animator = GetComponentInChildren<Animator>();
+            if (animator == null)
+                Debug.LogError("❌ Animator no encontrado en Ghost");
+            else
+                Debug.Log("✅ Animator encontrado: " + animator.name);
+        }
+        if (animator != null && animator.runtimeAnimatorController == null)
+        {
+            Debug.LogWarning($"⚠ {gameObject.name}: Animator sin controller. Animaciones deshabilitadas.");
+            animator = null;
+        }
+        else if (animator != null)
+        {
+            Debug.Log("✅ Animator Controller activo: " + animator.runtimeAnimatorController.name);
+        }
+    }
 
-        if (agent == null)
-            agent = GetComponent<NavMeshAgent>();
+    void TryInitializeAnimator(string calledFrom)
+    {
+        Debug.Log($"🔧 [{calledFrom}] Intentando inicializar Animator...");
 
-        animator.SetBool("isIdle", true);
+        if (animator == null)
+        {
+            animator = GetComponentInChildren<Animator>();
+            if (animator == null)
+            {
+                Debug.LogError($"❌ [{calledFrom}] No se encontró Animator");
+                return;
+            }
+            Debug.Log($"✅ [{calledFrom}] Animator encontrado: {animator.name}");
+        }
+        else
+        {
+            Debug.Log($"ℹ [{calledFrom}] Animator ya estaba asignado: {animator.name}");
+        }
 
-        // Desactivar rotación automática del NavMesh para controlarla manualmente
-        agent.updateRotation = false;
+        // Verificar el estado del animator
+        Debug.Log($"📊 [{calledFrom}] Animator.enabled: {animator.enabled}");
+        Debug.Log($"📊 [{calledFrom}] Animator.gameObject.activeSelf: {animator.gameObject.activeSelf}");
+        Debug.Log($"📊 [{calledFrom}] RuntimeController ANTES: {(animator.runtimeAnimatorController != null ? animator.runtimeAnimatorController.name : "NULL")}");
 
-        // Usar stoppingDistance para ayudar a que el agente frene antes del objetivo
-        agent.stoppingDistance = attackDistance;
+        // Forzar asignación del controlador
+        if (animatorController != null)
+        {
+            animator.runtimeAnimatorController = animatorController;
+            Debug.Log($"🔄 [{calledFrom}] Controller asignado manualmente");
+        }
+        else
+        {
+            Debug.LogError($"❌ [{calledFrom}] animatorController es NULL en el Inspector!");
+        }
+
+        // Verificar después de asignar
+        Debug.Log($"📊 [{calledFrom}] RuntimeController DESPUÉS: {(animator.runtimeAnimatorController != null ? animator.runtimeAnimatorController.name : "NULL")}");
+
+        // Verificar parámetros
+        if (animator.runtimeAnimatorController != null)
+        {
+            Debug.Log($"✅ [{calledFrom}] Parámetros disponibles:");
+            foreach (AnimatorControllerParameter param in animator.parameters)
+            {
+                Debug.Log($"   - {param.name} ({param.type})");
+            }
+        }
     }
 
     void Update()
     {
-        // Si está aturdido o ya hizo jumpscare, no hace nada (pero dejamos animaciones según estado)
-        if (isStunned || hasTriggeredJumpscare)
+        // ⭐ DIAGNÓSTICO: Verificar estado del animator en cada frame
+        if (animator == null)
+        {
+            Debug.LogError("❌ UPDATE: animator es NULL");
             return;
+        }
+
+        if (animator.runtimeAnimatorController == null)
+        {
+            Debug.LogError($"❌ UPDATE: runtimeAnimatorController es NULL (Frame: {Time.frameCount})");
+            // Intentar reinicializar
+            TryInitializeAnimator("Update-Retry");
+            return;
+        }
+
+        if (isStunned || hasTriggeredJumpscare) return;
 
         Transform cam = Camera.main?.transform;
         if (cam == null) return;
 
-        // Distancia horizontal (plano XZ)
-        float flatDistance = Vector3.Distance(
-            new Vector3(transform.position.x, 0f, transform.position.z),
-            new Vector3(cam.position.x, 0f, cam.position.z)
-        );
+        Vector3 ghostPos = new Vector3(transform.position.x, 0f, transform.position.z);
+        Vector3 camPos = new Vector3(cam.position.x, 0f, cam.position.z);
+        float flatDistance = Vector3.Distance(ghostPos, camPos);
 
-        // Si está dentro de rango de jumpscare, priorizar jumpscare
+        Vector3 direction = (cam.position - transform.position).normalized;
+        direction.y = 0f;
+
+        if (direction.sqrMagnitude > 0.01f)
+        {
+            Quaternion targetRot = Quaternion.LookRotation(-direction);
+            if (visualRoot != null)
+                visualRoot.transform.rotation = Quaternion.Slerp(visualRoot.transform.rotation, targetRot, Time.deltaTime * rotationSpeed);
+            else
+                transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * rotationSpeed);
+        }
+
         if (flatDistance <= jumpscareDistance && !hasTriggeredJumpscare)
         {
-            // detener inmediatamente para la animación de jumpscare
-            agent.isStopped = true;
+            Debug.Log("👻 Activando jumpscare: distancia = " + flatDistance);
             StartCoroutine(TriggerJumpscare(cam));
             return;
         }
 
-        // Si está dentro de rango de ataque, detener y atacar
-        if (flatDistance <= attackDistance && !hasAttacked)
+        if (flatDistance <= attackDistance)
         {
-            agent.isStopped = true;
-            hasAttacked = true;
-            TriggerAttack();
-        }
-        else if (flatDistance > attackDistance + resumeMovementBuffer)
-        {
-            agent.isStopped = false;
-        }
-
-        // Solo perseguir si no está detenido por ataque/jumpscare/aturdimiento
-        if (!agent.isStopped)
-        {
-            agent.speed = chaseSpeed;
-            agent.SetDestination(cam.position);
-        }
-
-        if (cameraFocusPoint != null)
-        {
-            Vector3 lookDir = cameraFocusPoint.position - transform.position;
-            lookDir.y = 0f;
-            if (lookDir.sqrMagnitude > 0.0001f)
+            if (!hasAttacked)
             {
-                Quaternion targetRot = Quaternion.LookRotation(lookDir);
-                transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * 6f);
+                Debug.Log("👊 Activando ataque normal: distancia = " + flatDistance);
+                hasAttacked = true;
+                TriggerAttack();
             }
         }
 
+        // ⭐ MODIFIED: Only auto-set idle/running if NOT attacking and NOT in debug mode
+        if (!hasPlayedAttackAnimation && !debugMode)
+        {
+            if (flatDistance > attackDistance)
+            {
+                if (!Physics.SphereCast(transform.position + Vector3.up * 0.5f, 0.3f, direction, out _, obstacleAvoidanceDistance, obstacleMask))
+                {
+                    transform.position += direction * moveSpeed * Time.deltaTime;
+                }
 
-        // Animaciones de movimiento (solo si el agente se mueve)
-        bool isMoving = agent.velocity.sqrMagnitude > 0.01f && !agent.isStopped;
-        animator.SetBool("isRunning", isMoving);
-        animator.SetBool("isIdle", !isMoving);
+                SafeSetBool("isRunning", true);
+                SafeSetBool("isIdle", false);
+            }
+            else
+            {
+                SafeSetBool("isRunning", false);
+                SafeSetBool("isIdle", true);
+            }
+        }
+    }
+
+    private void SafeSetBool(string paramName, bool value)
+    {
+        if (animator == null)
+        {
+            Debug.LogWarning($"⚠ SafeSetBool({paramName}): animator es NULL");
+            return;
+        }
+
+        if (animator.runtimeAnimatorController == null)
+        {
+            Debug.LogWarning($"⚠ SafeSetBool({paramName}): runtimeAnimatorController es NULL");
+            return;
+        }
+
+        try
+        {
+            animator.SetBool(paramName, value);
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"❌ Error al setear {paramName}: {e.Message}");
+        }
+    }
+
+    public void TriggerAttack()
+    {
+        if (!hasPlayedAttackAnimation && !hasTriggeredFinalAttack)  // ⭐ MODIFIED: Only allow if not already triggered globally
+        {
+            Debug.Log("🎬 Activando animación de ataque final (única vez)");
+
+            // ⭐ NEW: Flip the ghost 180 degrees (turn around)
+            Transform cam = Camera.main?.transform;
+            if (cam != null)
+            {
+                Vector3 directionToCam = (cam.position - transform.position).normalized;
+                directionToCam.y = 0f;  // Keep it flat
+                Vector3 flippedDirection = -directionToCam;  // Opposite direction
+                Quaternion targetRot = Quaternion.LookRotation(flippedDirection);
+
+                // Apply rotation instantly for a sharp flip
+                if (visualRoot != null)
+                    visualRoot.transform.rotation = targetRot;
+                else
+                    transform.rotation = targetRot;
+
+                Debug.Log("🔄 Ghost flipped 180 degrees for attack");
+            }
+
+            // ⭐ MODIFIED: Deactivate idle and running BEFORE activating attacking
+            SafeSetBool("isIdle", false);
+            SafeSetBool("isRunning", false);
+            SafeSetBool("isAttacking", true);
+
+            // ⭐ NEW: Start camera drag to faceTarget
+            if (Camera.main != null && faceTarget != null)
+            {
+                StartCoroutine(DragCameraToFace());
+            }
+
+            hasPlayedAttackAnimation = true;
+            hasTriggeredFinalAttack = true;  // ⭐ NEW: Mark as triggered to prevent repeats
+            StartCoroutine(ResetAttackAnimation());
+        }
+    }
+
+    IEnumerator ResetAttackAnimation()
+    {
+        yield return new WaitForSeconds(1.5f);
+
+        SafeSetBool("isAttacking", false);
+
+        // ⭐ MODIFIED: Do NOT restore idle/running or reset flags—end the game instead
+        Debug.Log("💀 Animation ended—reloading scene to end game");
+        UnityEngine.SceneManagement.SceneManager.LoadScene(sceneToReload);
+
+        // No reset of hasPlayedAttackAnimation or hasAttacked, as game ends
     }
 
     IEnumerator TriggerJumpscare(Transform cam)
     {
         hasTriggeredJumpscare = true;
-        agent.isStopped = true;
 
-        // Aseguramos que mire a la cámara (rotación inmediata)
         Vector3 lookDir = cam.position - transform.position;
         lookDir.y = 0f;
         if (lookDir.sqrMagnitude > 0.0001f)
-            transform.rotation = Quaternion.LookRotation(lookDir);
+        {
+            Quaternion targetRot = Quaternion.LookRotation(lookDir);
+            if (visualRoot != null)
+                visualRoot.transform.rotation = targetRot;
+            else
+                transform.rotation = targetRot;
+        }
 
-        // Posiciona la cámara frente al rostro del fantasma (si está disponible)
         if (Camera.main != null && faceTarget != null)
         {
             Camera.main.transform.position = faceTarget.position;
             Camera.main.transform.rotation = faceTarget.rotation;
         }
 
-        // Animación de ataque / jumpscare
-        animator.SetBool("isAttacking", true);
+        Debug.Log("😱 Activando animación de jumpscare");
+        SafeSetBool("isAttacking", true);
 
-        // Espera para que la animación haga su efecto (ajusta el tiempo según tu animación)
-        yield return new WaitForSeconds(1.5f);
-
-        animator.SetBool("isAttacking", false);
-        Debug.Log("💀 Jumpscare activado - el jugador fue atrapado");
-    }
-
-    public void TriggerAttack()
-    {
-        // Nos aseguramos de que la animación de ataque se ejecute aunque el agent esté detenido
-        animator.SetBool("isAttacking", true);
-        StartCoroutine(ResetAttack());
-    }
-
-    IEnumerator ResetAttack()
-    {
-        // Duración de la animación de ataque (ajusta según tu clip)
-        yield return new WaitForSeconds(1.2f);
-
-        animator.SetBool("isAttacking", false);
-        hasAttacked = false;
-
-        // Si el jugador sigue dentro del rango de ataque, mantenemos detenido; si no, reanudamos movimiento
-        Transform cam = Camera.main?.transform;
-        if (cam != null)
+        if (screamerAudio != null)
         {
-            float flatDistance = Vector3.Distance(
-                new Vector3(transform.position.x, 0f, transform.position.z),
-                new Vector3(cam.position.x, 0f, cam.position.z)
-            );
-
-            if (flatDistance > attackDistance + resumeMovementBuffer)
-                agent.isStopped = false;
-            else
-                agent.isStopped = true; // mantén detenido si aún está en rango
+            Debug.Log("🔊 Reproduciendo sonido de screamer");
+            screamerAudio.Play();
         }
-        else
+
+        StartCoroutine(FlickerLights());
+
+        yield return new WaitForSeconds(2f);
+        UnityEngine.SceneManagement.SceneManager.LoadScene(sceneToReload);
+    }
+
+    IEnumerator FlickerLights()
+    {
+        float elapsed = 0f;
+        while (elapsed < flickerDuration)
         {
-            agent.isStopped = false;
+            foreach (Light light in flickerLights)
+            {
+                if (light != null)
+                    light.enabled = !light.enabled;
+            }
+
+            yield return new WaitForSeconds(Random.Range(0.05f, 0.2f));
+            elapsed += Time.deltaTime;
+        }
+
+        foreach (Light light in flickerLights)
+        {
+            if (light != null)
+                light.enabled = true;
         }
     }
 
@@ -174,31 +337,56 @@ public class Ghost : MonoBehaviour
     IEnumerator StunAndRecover()
     {
         isStunned = true;
-        agent.isStopped = true;
 
-        animator.SetBool("isDead", true);
-        animator.SetBool("isIdle", false);
-        animator.SetBool("isRunning", false);
+        SafeSetBool("isDead", true);
+        SafeSetBool("isIdle", false);
+        SafeSetBool("isRunning", false);
 
-        Debug.Log("👻 Fantasma aturdido...");
+        Debug.Log("💤 Fantasma aturdida");
 
         yield return new WaitForSeconds(5f);
 
         isStunned = false;
-        agent.isStopped = false;
-        animator.SetBool("isDead", false);
-        animator.SetBool("isIdle", true);
+        SafeSetBool("isDead", false);
+        SafeSetBool("isIdle", true);
+
         hasAttacked = false;
-
-        Debug.Log("👻 Fantasma recuperado...");
+        Debug.Log("💥 Fantasma recuperada");
     }
-
-    // 🔹 Mantengo tu método original
 
     public void SetVisible(bool visible)
     {
         if (visualRoot != null)
-            visualRoot.SetActive(visible);
+        {
+            Renderer[] renderers = visualRoot.GetComponentsInChildren<Renderer>(true);
+            foreach (Renderer r in renderers)
+            {
+                r.enabled = visible;
+            }
+        }
     }
 
+    IEnumerator DragCameraToFace()
+    {
+        Transform cam = Camera.main.transform;
+        Vector3 startPos = cam.position;
+        Quaternion startRot = cam.rotation;
+        float duration = 1.5f;  // Match animation time; adjust if needed
+        float elapsed = 0f;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float t = elapsed / duration;
+            cam.position = Vector3.Lerp(startPos, faceTarget.position, t);
+            cam.rotation = Quaternion.Slerp(startRot, faceTarget.rotation, t);
+            yield return null;
+        }
+
+        // Ensure exact final position/rotation
+        cam.position = faceTarget.position;
+        cam.rotation = faceTarget.rotation;
+
+        Debug.Log("📹 Camera dragged to ghost's face");
+    }
 }
