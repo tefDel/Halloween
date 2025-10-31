@@ -304,7 +304,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   mainCamera: {fileID: 820111633}
   ghostCameraCanvas: {fileID: 248328478}
-  captureRange: 15
+  captureRange: 10
   ghostTag: Ghost
   toggleCameraKey: 99
   capturePhotoKey: 32
@@ -2796,13 +2796,13 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 345372231}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -0, y: 0.01165, z: -0.00335}
+  m_LocalRotation: {x: -0.028875127, y: 0.5296559, z: -0.019917393, w: 0.84748703}
+  m_LocalPosition: {x: -0.00002, y: 0.00622, z: -0.00547}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 1307528674}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+  m_LocalEulerAnglesHint: {x: -1.596, y: 64.06, z: -3.691}
 --- !u!4 &380478289 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 109434732395451517, guid: 65847589f926b734d9eaed6e25f0046b, type: 3}
@@ -3639,7 +3639,7 @@ GameObject:
   - component: {fileID: 573794549}
   m_Layer: 0
   m_Name: XR Origin (VR)
-  m_TagString: Untagged
+  m_TagString: Player
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
@@ -5627,6 +5627,7 @@ MonoBehaviour:
   animator: {fileID: 1307528673}
   animatorController: {fileID: 9100000, guid: bcd4f1bb357c82e489d293e51f6582df, type: 2}
   faceTarget: {fileID: 345372232}
+  xrOrigin: {fileID: 573794548}
   screamerAudio: {fileID: 606500776}
   flickerLights: []
   flickerDuration: 2
@@ -5786,6 +5787,59 @@ Rigidbody:
   m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 0
+--- !u!1 &1331550051 stripped
+GameObject:
+  m_CorrespondingSourceObject: {fileID: 919132149155446097, guid: 215126e5145cc054b834be94e8d80f63, type: 3}
+  m_PrefabInstance: {fileID: 1971045835}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &1331550052 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 215126e5145cc054b834be94e8d80f63, type: 3}
+  m_PrefabInstance: {fileID: 1971045835}
+  m_PrefabAsset: {fileID: 0}
+--- !u!65 &1331550053
+BoxCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1331550051}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 3
+  m_Size: {x: 5.1401224, y: 1.6178151, z: 2.1885638}
+  m_Center: {x: -0.014749733, y: 0.746895, z: 0.00827907}
+--- !u!114 &1331550054
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1331550051}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cf62237133a82154cb22e6c50bc56bf9, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  playerTransform: {fileID: 573794548}
+  requiredItems: 4
+  collectedItems: 0
+  carSeatTransform: {fileID: 1331550052}
+  carObject: {fileID: 0}
+  carStartSound: {fileID: 0}
+  messageCanvas: {fileID: 0}
+  messageText: {fileID: 0}
+  messageDuration: 3
+  sceneToLoad: GameOverScene
 --- !u!1 &1350373102
 GameObject:
   m_ObjectHideFlags: 0
@@ -7056,7 +7110,7 @@ GameObject:
   - component: {fileID: 1861963272}
   - component: {fileID: 1861963276}
   m_Layer: 0
-  m_Name: Car_free_
+  m_Name: CarroPolicia
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -7262,12 +7316,18 @@ PrefabInstance:
       objectReference: {fileID: 2100000, guid: 886c63a333d7f174ea718293a0aa96f3, type: 2}
     - target: {fileID: 919132149155446097, guid: 215126e5145cc054b834be94e8d80f63, type: 3}
       propertyPath: m_Name
-      value: bmwE24
+      value: CarroSalida
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
-    m_AddedComponents: []
+    m_AddedComponents:
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 215126e5145cc054b834be94e8d80f63, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1331550054}
+    - targetCorrespondingSourceObject: {fileID: 919132149155446097, guid: 215126e5145cc054b834be94e8d80f63, type: 3}
+      insertIndex: -1
+      addedObject: {fileID: 1331550053}
   m_SourcePrefab: {fileID: 100100000, guid: 215126e5145cc054b834be94e8d80f63, type: 3}
 --- !u!1001 &1979115517
 PrefabInstance:

@@ -18,21 +18,27 @@ public class Ghost : MonoBehaviour
 
     [Header("Jumpscare")]
     public Transform faceTarget;
+    public Transform xrOrigin; // ⭐ Asigna el XR Origin aquí (el objeto padre de la cámara VR)
 
     [Header("Screamer Final")]
     public AudioSource screamerAudio;
     public Light[] flickerLights;
     public float flickerDuration = 2f;
     public string sceneToReload = "FatalFrane";
+    private bool hasPlayedScreamer = false;
 
     private bool isStunned = false;
     private bool hasAttacked = false;
     private bool hasTriggeredJumpscare = false;
-    private bool hasPlayedAttackAnimation = false;
-    private bool hasTriggeredFinalAttack = false;  // Prevents repeating the final attack
+    private bool isAttacking = false; // ⭐ ADDED: Explicit attack state tracking
 
     [Header("Debug")]
     public bool debugMode = false;
+
+    // New variables for camera movement during attack
+    private Vector3 originalCameraPosition;
+    private Quaternion originalCameraRotation;
+    private bool isCameraMoving = false;
 
     void Awake()
     {
@@ -48,6 +54,8 @@ public class Ghost : MonoBehaviour
 
     void Start()
     {
+        Debug.Log("🚀 === GHOST START ===");
+
         if (animator == null)
         {
             animator = GetComponentInChildren<Animator>();
@@ -65,6 +73,69 @@ public class Ghost : MonoBehaviour
         {
             Debug.Log("✅ Animator Controller activo: " + animator.runtimeAnimatorController.name);
         }
+
+        // ⭐ Auto-detect XR Origin if not assigned
+        Debug.Log("🔍 Verificando XR Origin...");
+        Debug.Log($"   xrOrigin asignado en Inspector: {(xrOrigin != null ? xrOrigin.name : "NULL")}");
+
+        if (xrOrigin == null && Camera.main != null)
+        {
+            Debug.Log("🔍 Buscando XR Origin automáticamente...");
+            // Try to find XR Origin by going up the hierarchy
+            Transform current = Camera.main.transform;
+            int level = 0;
+            while (current.parent != null && level < 10)
+            {
+                current = current.parent;
+                level++;
+                Debug.Log($"   Nivel {level}: {current.name}");
+
+                if (current.name.Contains("XR") || current.name.Contains("Origin") || current.name.Contains("OVR") || current.name.Contains("CameraRig"))
+                {
+                    xrOrigin = current;
+                    Debug.Log($"✅ XR Origin detectado automáticamente: {xrOrigin.name} (nivel {level})");
+                    break;
+                }
+            }
+
+            if (xrOrigin == null)
+            {
+                Debug.LogWarning("⚠️ No se detectó XR Origin automáticamente. Asígnalo manualmente en el Inspector.");
+                Debug.LogWarning($"   Jerarquía de Camera.main: {GetHierarchyPath(Camera.main.transform)}");
+            }
+        }
+        else if (xrOrigin != null)
+        {
+            Debug.Log($"✅ XR Origin ya asignado: {xrOrigin.name}");
+        }
+
+        // Store original XR Origin position
+        if (xrOrigin != null)
+        {
+            originalCameraPosition = xrOrigin.position;
+            originalCameraRotation = xrOrigin.rotation;
+            Debug.Log($"💾 Posición original del XR Origin guardada:");
+            Debug.Log($"   Position: {originalCameraPosition}");
+            Debug.Log($"   Rotation: {originalCameraRotation.eulerAngles}");
+        }
+        else
+        {
+            Debug.LogError("❌ XR Origin es NULL después de Start! No se podrá mover la cámara.");
+        }
+
+        Debug.Log("🚀 === FIN GHOST START ===");
+    }
+
+    // Helper method to get full hierarchy path
+    string GetHierarchyPath(Transform t)
+    {
+        string path = t.name;
+        while (t.parent != null)
+        {
+            t = t.parent;
+            path = t.name + "/" + path;
+        }
+        return path;
     }
 
     void TryInitializeAnimator(string calledFrom)
@@ -118,6 +189,12 @@ public class Ghost : MonoBehaviour
 
     void Update()
     {
+        // ⭐ FIXED: Block all Update logic during attack
+        if (isAttacking)
+        {
+            return;
+        }
+
         // ⭐ DIAGNÓSTICO: Verificar estado del animator en cada frame
         if (animator == null)
         {
@@ -171,8 +248,8 @@ public class Ghost : MonoBehaviour
             }
         }
 
-        // ⭐ MODIFIED: Only auto-set idle/running if NOT attacking and NOT in debug mode
-        if (!hasPlayedAttackAnimation && !debugMode)
+        // ⭐ FIXED: Only set movement animations when not attacking
+        if (!debugMode)
         {
             if (flatDistance > attackDistance)
             {
@@ -208,7 +285,10 @@ public class Ghost : MonoBehaviour
 
         try
         {
+            bool currentValue = animator.GetBool(paramName);
+            Debug.Log($"🔍 SafeSetBool({paramName}): current = {currentValue}, setting to {value}");
             animator.SetBool(paramName, value);
+            Debug.Log($"✅ SafeSetBool({paramName}): set to {value} successfully");
         }
         catch (System.Exception e)
         {
@@ -218,56 +298,175 @@ public class Ghost : MonoBehaviour
 
     public void TriggerAttack()
     {
-        if (!hasPlayedAttackAnimation && !hasTriggeredFinalAttack)  // ⭐ MODIFIED: Only allow if not already triggered globally
+        // ⭐ FIXED: Set isAttacking flag immediately
+        isAttacking = true;
+
+        Debug.Log("🎬 Activando animación de ataque");
+
+        Transform cam = Camera.main?.transform;
+        if (cam != null)
         {
-            Debug.Log("🎬 Activando animación de ataque final (única vez)");
+            Vector3 directionToCam = (cam.position - transform.position).normalized;
+            directionToCam.y = 0f;
+            Vector3 flippedDirection = -directionToCam;
+            Quaternion targetRot = Quaternion.LookRotation(flippedDirection);
 
-            // ⭐ NEW: Flip the ghost 180 degrees (turn around)
-            Transform cam = Camera.main?.transform;
-            if (cam != null)
-            {
-                Vector3 directionToCam = (cam.position - transform.position).normalized;
-                directionToCam.y = 0f;  // Keep it flat
-                Vector3 flippedDirection = -directionToCam;  // Opposite direction
-                Quaternion targetRot = Quaternion.LookRotation(flippedDirection);
+            if (visualRoot != null)
+                visualRoot.transform.rotation = targetRot;
+            else
+                transform.rotation = targetRot;
 
-                // Apply rotation instantly for a sharp flip
-                if (visualRoot != null)
-                    visualRoot.transform.rotation = targetRot;
-                else
-                    transform.rotation = targetRot;
-
-                Debug.Log("🔄 Ghost flipped 180 degrees for attack");
-            }
-
-            // ⭐ MODIFIED: Deactivate idle and running BEFORE activating attacking
-            SafeSetBool("isIdle", false);
-            SafeSetBool("isRunning", false);
-            SafeSetBool("isAttacking", true);
-
-            // ⭐ NEW: Start camera drag to faceTarget
-            if (Camera.main != null && faceTarget != null)
-            {
-                StartCoroutine(DragCameraToFace());
-            }
-
-            hasPlayedAttackAnimation = true;
-            hasTriggeredFinalAttack = true;  // ⭐ NEW: Mark as triggered to prevent repeats
-            StartCoroutine(ResetAttackAnimation());
+            Debug.Log("🔄 Ghost flipped 180 degrees for attack");
         }
+
+        SafeSetBool("isIdle", false);
+        SafeSetBool("isRunning", false);
+        SafeSetBool("isAttacking", true);
+        // 💥 Reproducir sonido de grito al iniciar ataque
+        if (screamerAudio != null && !hasPlayedScreamer)
+        {
+            screamerAudio.Play();
+            hasPlayedScreamer = true;
+            Debug.Log("🔊 Sonido de ataque reproducido una sola vez");
+        }
+
+        // ⭐ Mueve XR Origin hacia el faceTarget apenas inicia el ataque
+        if (xrOrigin != null && faceTarget != null)
+        {
+            StartCoroutine(MoveXROriginToFaceTarget(1.5f)); // Puedes ajustar la duración
+        }
+        else
+        {
+            Debug.LogWarning("⚠ No se puede mover XR Origin: faltan referencias");
+        }
+        // Start coroutine to wait for animation completion
+        StartCoroutine(WaitForAttackAnimation());
     }
 
-    IEnumerator ResetAttackAnimation()
+    // ⭐ FIXED: Improved animation wait logic
+    IEnumerator WaitForAttackAnimation()
     {
-        yield return new WaitForSeconds(1.5f);
+        Debug.Log("⏳ Esperando a que termine la animación de ataque");
 
-        SafeSetBool("isAttacking", false);
+        // Esperar transición al estado de ataque
+        yield return null;
+        yield return null;
 
-        // ⭐ MODIFIED: Do NOT restore idle/running or reset flags—end the game instead
-        Debug.Log("💀 Animation ended—reloading scene to end game");
+        AnimatorStateInfo stateInfo = animator.GetCurrentAnimatorStateInfo(0);
+        float timeout = 0f;
+
+        while (!stateInfo.IsName("Attack") && timeout < 1f)
+        {
+            yield return null;
+            stateInfo = animator.GetCurrentAnimatorStateInfo(0);
+            timeout += Time.deltaTime;
+        }
+
+        if (timeout >= 1f)
+        {
+            Debug.LogWarning("⚠ Timeout esperando la animación de ataque");
+        }
+
+        // Esperar a que la animación termine
+        while (stateInfo.normalizedTime < 0.95f || animator.IsInTransition(0))
+        {
+            yield return null;
+            stateInfo = animator.GetCurrentAnimatorStateInfo(0);
+        }
+
+        Debug.Log("✅ Animación de ataque completada");
+
+        // Esperar a que el sonido termine
+        if (screamerAudio != null && screamerAudio.clip != null)
+        {
+            Debug.Log("🔊 Esperando a que termine el sonido...");
+            yield return new WaitForSeconds(screamerAudio.clip.length);
+        }
+
+        // Pantalla negra por 5 segundos
+        Debug.Log("🕳 Pantalla negra por 5 segundos");
+
+        // Si tienes un sistema de fade, puedes activarlo aquí:
+        // FadeToBlack(); ← método opcional si usas Canvas o post-procesamiento
+
+        yield return new WaitForSeconds(5f);
+
+        // Reiniciar escena
         UnityEngine.SceneManagement.SceneManager.LoadScene(sceneToReload);
+    }
 
-        // No reset of hasPlayedAttackAnimation or hasAttacked, as game ends
+    // ⭐ Move XR Origin to faceTarget position for attack view
+    IEnumerator MoveXROriginToFaceTarget(float duration)
+    {
+        Debug.Log("🔍 === INICIO MoveXROriginToFaceTarget ===");
+
+        if (faceTarget == null || xrOrigin == null || Camera.main == null)
+        {
+            Debug.LogError("❌ Referencias faltantes para movimiento de XR Origin");
+            yield break;
+        }
+
+        Vector3 cameraLocalPos = Camera.main.transform.localPosition;
+        Vector3 targetPos = faceTarget.position - (xrOrigin.rotation * cameraLocalPos);
+        Quaternion targetRot = faceTarget.rotation;
+
+        // 💥 Movimiento brusco tipo jumpscare
+        xrOrigin.position = targetPos + Random.insideUnitSphere * 0.03f; // Temblor inicial
+        xrOrigin.rotation = targetRot;
+        yield return new WaitForSeconds(0.05f); // Microdelay
+
+        xrOrigin.position = targetPos;
+        xrOrigin.rotation = targetRot;
+
+        Debug.Log("💥 Movimiento brusco completado");
+    }
+
+    // New coroutine to move camera towards faceTarget during attack
+    IEnumerator MoveCameraToFace(float duration)
+    {
+        isCameraMoving = true;
+        Transform cam = Camera.main.transform;
+        Vector3 startPos = cam.position;
+        Quaternion startRot = cam.rotation;
+        Vector3 endPos = faceTarget.position;
+        Quaternion endRot = faceTarget.rotation;
+
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            float t = elapsed / duration;
+            cam.position = Vector3.Lerp(startPos, endPos, t);
+            cam.rotation = Quaternion.Slerp(startRot, endRot, t);
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        cam.position = endPos;
+        cam.rotation = endRot;
+        Debug.Log("📹 Camera moved to faceTarget for attack");
+    }
+
+    // New coroutine to move camera back to original position
+    IEnumerator MoveCameraBack(float duration)
+    {
+        Transform cam = Camera.main.transform;
+        Vector3 startPos = cam.position;
+        Quaternion startRot = cam.rotation;
+
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            float t = elapsed / duration;
+            cam.position = Vector3.Lerp(startPos, originalCameraPosition, t);
+            cam.rotation = Quaternion.Slerp(startRot, originalCameraRotation, t);
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        cam.position = originalCameraPosition;
+        cam.rotation = originalCameraRotation;
+        isCameraMoving = false;
+        Debug.Log("📹 Camera moved back to original position");
     }
 
     IEnumerator TriggerJumpscare(Transform cam)
@@ -285,21 +484,16 @@ public class Ghost : MonoBehaviour
                 transform.rotation = targetRot;
         }
 
-        if (Camera.main != null && faceTarget != null)
+        // ⭐ MODIFIED: Move XR Origin to faceTarget instead of directly setting Camera.main
+        if (xrOrigin != null && faceTarget != null)
         {
-            Camera.main.transform.position = faceTarget.position;
-            Camera.main.transform.rotation = faceTarget.rotation;
+            Debug.Log("📹 Moving XR Origin to faceTarget for jumpscare");
+            StartCoroutine(MoveXROriginToFaceTarget(0.1f)); // Adjust duration as needed for "advance" effect
         }
-
-        Debug.Log("😱 Activando animación de jumpscare");
-        SafeSetBool("isAttacking", true);
-
-        if (screamerAudio != null)
+        else
         {
-            Debug.Log("🔊 Reproduciendo sonido de screamer");
-            screamerAudio.Play();
+            Debug.LogWarning("⚠ XR Origin or faceTarget is null, cannot move for jumpscare");
         }
-
         StartCoroutine(FlickerLights());
 
         yield return new WaitForSeconds(2f);
@@ -338,16 +532,21 @@ public class Ghost : MonoBehaviour
     {
         isStunned = true;
 
+        // Play death animation once
         SafeSetBool("isDead", true);
         SafeSetBool("isIdle", false);
         SafeSetBool("isRunning", false);
 
         Debug.Log("💤 Fantasma aturdida");
 
+        // Assuming death animation clip length is 5 seconds
         yield return new WaitForSeconds(5f);
 
-        isStunned = false;
+        // Reset dead to false after animation completes so it doesn't loop
         SafeSetBool("isDead", false);
+
+        isStunned = false;
+
         SafeSetBool("isIdle", true);
 
         hasAttacked = false;
@@ -366,27 +565,4 @@ public class Ghost : MonoBehaviour
         }
     }
 
-    IEnumerator DragCameraToFace()
-    {
-        Transform cam = Camera.main.transform;
-        Vector3 startPos = cam.position;
-        Quaternion startRot = cam.rotation;
-        float duration = 1.5f;  // Match animation time; adjust if needed
-        float elapsed = 0f;
-
-        while (elapsed < duration)
-        {
-            elapsed += Time.deltaTime;
-            float t = elapsed / duration;
-            cam.position = Vector3.Lerp(startPos, faceTarget.position, t);
-            cam.rotation = Quaternion.Slerp(startRot, faceTarget.rotation, t);
-            yield return null;
-        }
-
-        // Ensure exact final position/rotation
-        cam.position = faceTarget.position;
-        cam.rotation = faceTarget.rotation;
-
-        Debug.Log("📹 Camera dragged to ghost's face");
-    }
 }
