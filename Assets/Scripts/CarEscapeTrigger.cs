@@ -24,8 +24,6 @@ public class CarEscapeTrigger : MonoBehaviour
         "Aceite",
         "Gasolina"
     };
-    [HideInInspector]
-
     private List<bool> itemsCollected = new List<bool>();
 
     [Header("Carro - Transformaciones")]
@@ -43,13 +41,21 @@ public class CarEscapeTrigger : MonoBehaviour
 
     [Header("UI Mensaje")]
     public Canvas messageCanvas;
-    public TextMeshPro messageText;
+    public GameObject panelFaltanItems;
+    public GameObject panelTodoListo;
     public float messageDuration = 3f;
 
     [Header("Final del Juego")]
     public string sceneToLoad = "GameOverScene";
     public float delayBeforeSceneLoad = 5f;
 
+    [Header("Blackout")]
+    public GameObject blackFadeQuad;
+    public float fadeDuration = 2f;
+
+    [Header("Cámara dentro del carro")]
+    public Transform cameraSeatTransform;
+    public Transform cameraRoot;
 
     private bool hasTriggered = false;
     private bool isMoving = false;
@@ -64,6 +70,7 @@ public class CarEscapeTrigger : MonoBehaviour
         }
 
         itemsCollected = new List<bool>(new bool[requiredItemNames.Count]);
+        ShowMissingItemsVisual(); // Mostrar panel rojo al iniciar
 
     }
 
@@ -75,7 +82,7 @@ public class CarEscapeTrigger : MonoBehaviour
         {
             if (!AllItemsCollected())
             {
-                ShowMissingItems();
+                ShowMissingItemsWithText();
             }
             else
             {
@@ -93,24 +100,27 @@ public class CarEscapeTrigger : MonoBehaviour
         }
         return true;
     }
-    void ShowMessage(string text)
+
+    void ShowMissingItemsVisual()
     {
-        if (messageCanvas != null && messageText != null)
-        {
-            messageText.text = text;
-            messageCanvas.enabled = true;
-            CancelInvoke(nameof(HideMessage));
-            Invoke(nameof(HideMessage), messageDuration);
-        }
+        if (panelFaltanItems != null)
+            panelFaltanItems.SetActive(true);
+
+        if (panelTodoListo != null)
+            panelTodoListo.SetActive(false);
     }
 
-    void HideMessage()
+    void ShowReadyToEscape()
     {
-        if (messageCanvas != null)
-            messageCanvas.enabled = false;
+        if (panelTodoListo != null)
+            panelTodoListo.SetActive(true);
+
+        if (panelFaltanItems != null)
+            panelFaltanItems.SetActive(false);
     }
 
-    void ShowMissingItems()
+
+    void ShowMissingItemsWithText()
     {
         GhostCameraController ghostCam = FindObjectOfType<GhostCameraController>();
         if (ghostCam != null)
@@ -125,9 +135,9 @@ public class CarEscapeTrigger : MonoBehaviour
             }
         }
 
-        ShowMessage(message);
+        Debug.Log(message);
+        ShowMissingItemsVisual();
     }
-
 
     IEnumerator EscapeSequence()
     {
@@ -143,126 +153,121 @@ public class CarEscapeTrigger : MonoBehaviour
         if (carStartSound != null)
             carStartSound.Play();
 
-        yield return new WaitForSeconds(2f);
+        yield return StartCoroutine(CameraShake(0.5f, 0.03f));
 
-
-        if (carMoveTarget != null)
+        if (cameraRoot != null && cameraSeatTransform != null)
         {
-            yield return StartCoroutine(MoveCarToTarget());
-        }
-        else
-        {
-            yield return new WaitForSeconds(delayBeforeSceneLoad);
+            cameraRoot.position = cameraSeatTransform.position;
+            cameraRoot.rotation = cameraSeatTransform.rotation;
         }
 
+        yield return StartCoroutine(MoveCarForward());
+
+        if (blackFadeQuad != null)
+            yield return StartCoroutine(FadeToBlack());
+
+        yield return new WaitForSeconds(delayBeforeSceneLoad);
         SceneManager.LoadScene(sceneToLoad);
     }
 
-    IEnumerator MoveCarToTarget()
+    IEnumerator CameraShake(float duration, float intensity)
     {
-        isMoving = true;
-        Vector3 startPos = carObject.transform.position;
-        Vector3 endPos = carMoveTarget.position;
-        float distance = Vector3.Distance(startPos, endPos);
-        float elapsedTime = 0f;
-        float duration = distance / carMoveSpeed;
+        float elapsed = 0f;
+        Vector3 originalPos = xrCamera.localPosition;
 
-        Vector3 direction = (endPos - startPos).normalized;
-        if (direction != Vector3.zero)
+        while (elapsed < duration)
         {
-            Quaternion targetRotation = Quaternion.LookRotation(direction);
-            carObject.transform.rotation = Quaternion.Slerp(
-                carObject.transform.rotation,
-                targetRotation,
-                Time.deltaTime * 2f
-            );
-        }
-
-        while (elapsedTime < duration)
-        {
-            elapsedTime += Time.deltaTime;
-            float t = elapsedTime / duration;
-            float curvedT = speedCurve.Evaluate(t);
-
-            carObject.transform.position = Vector3.Lerp(startPos, endPos, curvedT);
-
+            Vector3 offset = Random.insideUnitSphere * intensity;
+            xrCamera.localPosition = originalPos + offset;
+            elapsed += Time.deltaTime;
             yield return null;
         }
 
-        carObject.transform.position = endPos;
-        isMoving = false;
-
-
-        yield return new WaitForSeconds(2f);
+        xrCamera.localPosition = originalPos;
     }
 
+    IEnumerator MoveCarForward()
+    {
+        float moveTime = 3f;
+        float elapsed = 0f;
+        Vector3 direction = carObject.transform.forward;
+
+        while (elapsed < moveTime)
+        {
+            carObject.transform.position += direction * carMoveSpeed * Time.deltaTime;
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+    }
+
+    IEnumerator FadeToBlack()
+    {
+        Renderer quadRenderer = blackFadeQuad.GetComponent<Renderer>();
+        if (quadRenderer == null) yield break;
+
+        Material mat = quadRenderer.material;
+        Color startColor = mat.color;
+        Color endColor = new Color(startColor.r, startColor.g, startColor.b, 1f);
+
+        float elapsed = 0f;
+        while (elapsed < fadeDuration)
+        {
+            float t = elapsed / fadeDuration;
+            mat.color = Color.Lerp(startColor, endColor, t);
+            elapsed += Time.deltaTime;
+            yield return null;
+        }
+
+        mat.color = endColor;
+    }
 
     void DisablePlayerControls()
     {
         if (xrRig != null)
         {
-            // CORRECCIÓN: Ahora con el namespace correcto
             LocomotionProvider locomotion = xrRig.GetComponentInChildren<LocomotionProvider>();
-            if (locomotion != null)
-                locomotion.enabled = false;
+            if (locomotion != null) locomotion.enabled = false;
 
-            // También deshabilitar los providers específicos
             var teleportation = xrRig.GetComponentInChildren<TeleportationProvider>();
-            if (teleportation != null)
-                teleportation.enabled = false;
+            if (teleportation != null) teleportation.enabled = false;
 
             var continuous = xrRig.GetComponentInChildren<ContinuousMoveProviderBase>();
-            if (continuous != null)
-                continuous.enabled = false;
+            if (continuous != null) continuous.enabled = false;
 
             var turn = xrRig.GetComponentInChildren<ContinuousTurnProviderBase>();
-            if (turn != null)
-                turn.enabled = false;
+            if (turn != null) turn.enabled = false;
         }
     }
-
 
     public void CollectItem(string itemName)
     {
-        if (!requiredItemNames.Contains(itemName)) return;
+        int index = requiredItemNames.IndexOf(itemName);
+        if (index < 0 || index >= itemsCollected.Count) return;
 
-        collectedItemCount++;
-        Debug.Log($"📦 {collectedItemCount}/{requiredItemNames.Count} Items recolectados");
-
-        Ghost ghost = FindObjectOfType<Ghost>();
-        if (ghost != null)
-        {
-            ghost.UpdateSpeed(collectedItemCount);
-        }
-
-        if (collectedItemCount >= requiredItemNames.Count)
-        {
-            Debug.Log("🚗 ¡Todos los items recolectados! Puedes ir al carro para escapar.");
-        }
-    }
-    public void CollectItemByIndex(int index)
-    {
-        if (index >= 0 && index < itemsCollected.Count)
+        if (!itemsCollected[index])
         {
             itemsCollected[index] = true;
-            ShowMessage($"¡Recogiste: {requiredItemNames[index]}!\n\n{GetCollectedCount()}/{requiredItemNames.Count} items");
+            collectedItemCount++;
+            Debug.Log($"📦 {collectedItemCount}/{requiredItemNames.Count} Items recolectados");
 
-            GhostCameraController ghostCam = FindObjectOfType<GhostCameraController>();
-            if (ghostCam != null)
-                ghostCam.UpdateItemPanels(AllItemsCollected());
+            Ghost ghost = FindObjectOfType<Ghost>();
+            if (ghost != null)
+            {
+                ghost.UpdateSpeed(collectedItemCount);
+            }
+
+            if (AllItemsCollected())
+            {
+                Debug.Log("🚗 ¡Todos los items recolectados! Puedes ir al carro para escapar.");
+                ShowReadyToEscape();
+            }
+            else
+            {
+                ShowMissingItemsVisual(); // Mantener panel rojo si aún faltan
+            }
         }
     }
 
-
-    int GetCollectedCount()
-    {
-        int count = 0;
-        foreach (bool collected in itemsCollected)
-        {
-            if (collected) count++;
-        }
-        return count;
-    }
 
     public bool IsItemCollected(string itemName)
     {
