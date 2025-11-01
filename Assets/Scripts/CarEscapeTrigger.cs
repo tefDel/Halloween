@@ -84,13 +84,15 @@ public class CarEscapeTrigger : MonoBehaviour
             {
                 ShowMissingItemsWithText();
             }
-            else
+            else if (panelTodoListo != null && panelTodoListo.activeSelf)
             {
                 hasTriggered = true;
+                Debug.Log("🚗 Jugador se acercó al carro con todos los ítems. Iniciando escape...");
                 StartCoroutine(EscapeSequence());
             }
         }
     }
+
 
     bool AllItemsCollected()
     {

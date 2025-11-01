@@ -9,8 +9,11 @@ EditorBuildSettings:
     path: Assets/OutdoorsScene.unity
     guid: 8124e5870f4fd4c779e7a5f994e84ad1
   - enabled: 1
-    path: Assets/Scenes/FatalFrame.unity
-    guid: b95eeeed27a005d48a843b01b772cedd
+    path: Assets/Scenes/Inicio.unity
+    guid: 18bdbc8bbfb364644aa73fe4a6d78500
+  - enabled: 1
+    path: Assets/Scenes/DarkDiary.unity
+    guid: ae01b8394ee0b6d4fb6d22b558ae0424
   m_configObjects:
     Unity.XR.Oculus.Settings: {fileID: 11400000, guid: 2bd5b4a316eff584493bbb796174be11, type: 2}
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 6c20cb28c1ad3fb43b91f1aef6242ccd, type: 3}

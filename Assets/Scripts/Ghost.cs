@@ -12,8 +12,8 @@ public class Ghost : MonoBehaviour
     public LayerMask obstacleMask;
     public GameObject visualRoot;
 
-    //[Header("Fade en VR")]
-    //public GameObject blackFadeQuad;
+    [Header("Fade en VR")]
+    public GameObject blackFadeQuad;
 
     [Header("Animaciones")]
     public Animator animator;
@@ -29,14 +29,20 @@ public class Ghost : MonoBehaviour
     public float flickerDuration = 2f;
     public string sceneToReload = "FatalFrane";
     private bool hasPlayedScreamer = false;
+    [Header("Luz guía")]
+    public Light guideLight; // ← Asigna esta luz en el Inspector
+
 
     private bool isStunned = false;
     private bool hasAttacked = false;
     private bool hasTriggeredJumpscare = false;
     private bool isAttacking = false; // ⭐ ADDED: Explicit attack state tracking
 
+
     [Header("Debug")]
     public bool debugMode = false;
+
+   
 
     // New variables for camera movement during attack
     private Vector3 originalCameraPosition;
@@ -275,8 +281,11 @@ public class Ghost : MonoBehaviour
     }
     public void ActivateMovement()
     {
-        moveSpeed = 1f;
-        Debug.Log("👻 Fantasma activada: velocidad ahora es 1");
+        // Si aún no tiene velocidad asignada, empieza con la base
+        if (moveSpeed <= 0f)
+            moveSpeed = 0.7f; // velocidad base inicial
+
+        Debug.Log($"👻 Fantasma activada: velocidad inicial = {moveSpeed}");
     }
     private void SafeSetBool(string paramName, bool value)
     {
@@ -309,7 +318,11 @@ public class Ghost : MonoBehaviour
     {
         // ⭐ FIXED: Set isAttacking flag immediately
         isAttacking = true;
-
+        if (guideLight != null && guideLight.enabled)
+        {
+            guideLight.enabled = false;
+            Debug.Log("💡 Luz guía apagada al iniciar el screamer");
+        }
         Debug.Log("🎬 Activando animación de ataque");
 
         Transform cam = Camera.main?.transform;
@@ -379,12 +392,12 @@ public class Ghost : MonoBehaviour
 
         Debug.Log("✅ Animación de ataque completada");
 
-        //// 💥 Activar pantalla negra inmediatamente
-        //if (blackFadeQuad != null)
-        //{
-        //    blackFadeQuad.SetActive(true);
-        //    Debug.Log("🕳 Pantalla negra activada en VR");
-        //}
+        // 💥 Activar pantalla negra inmediatamente
+        if (blackFadeQuad != null)
+        {
+            blackFadeQuad.SetActive(true);
+            Debug.Log("🕳 Pantalla negra activada en VR");
+        }
 
         if (visualRoot != null)
         {
@@ -408,7 +421,7 @@ public class Ghost : MonoBehaviour
         }
 
         // ⏳ Esperar 5 segundos con pantalla negra
-        yield return new WaitForSeconds(5f);
+        yield return new WaitForSeconds(4f);
 
         // 🔄 Reiniciar escena
         UnityEngine.SceneManagement.SceneManager.LoadScene(sceneToReload);
@@ -490,10 +503,15 @@ public class Ghost : MonoBehaviour
         Debug.Log("📹 Camera moved back to original position");
     }
 
+
     IEnumerator TriggerJumpscare(Transform cam)
     {
         hasTriggeredJumpscare = true;
 
+        // ⏳ Programar reinicio exacto 3 segundos después del inicio del jumpscare
+        StartCoroutine(DelayedSceneReload(3f));
+
+        // Rotar la fantasma hacia el jugador
         Vector3 lookDir = cam.position - transform.position;
         lookDir.y = 0f;
         if (lookDir.sqrMagnitude > 0.0001f)
@@ -505,21 +523,31 @@ public class Ghost : MonoBehaviour
                 transform.rotation = targetRot;
         }
 
-        // ⭐ MODIFIED: Move XR Origin to faceTarget instead of directly setting Camera.main
+        // Mover XR Origin al target del jumpscare
         if (xrOrigin != null && faceTarget != null)
         {
             Debug.Log("📹 Moving XR Origin to faceTarget for jumpscare");
-            StartCoroutine(MoveXROriginToFaceTarget(0.1f)); // Adjust duration as needed for "advance" effect
+            StartCoroutine(MoveXROriginToFaceTarget(0.1f));
         }
         else
         {
-            Debug.LogWarning("⚠ XR Origin or faceTarget is null, cannot move for jumpscare");
+            Debug.LogWarning("⚠ XR Origin or faceTarget is null, cannot move for jumpscare");
         }
+
+        // Activar luces parpadeantes
         StartCoroutine(FlickerLights());
 
-        yield return new WaitForSeconds(2f);
-        UnityEngine.SceneManagement.SceneManager.LoadScene(sceneToReload);
+        // Activar pantalla negra
+        if (blackFadeQuad != null)
+        {
+            blackFadeQuad.SetActive(true);
+            Debug.Log("🕳 Pantalla negra activada en VR");
+        }
+
+        yield break; // Finalizar la corutina sin esperar más
     }
+
+
 
     IEnumerator FlickerLights()
     {
@@ -553,25 +581,31 @@ public class Ghost : MonoBehaviour
     {
         isStunned = true;
 
-        // Play death animation once
+        // 💾 Guardar velocidad actual antes del estuneo
+        float previousSpeed = moveSpeed;
+        moveSpeed = 0f; // 🚫 Bloquear movimiento completamente
+
+        // Reproducir animación de "muerte"/aturdimiento
         SafeSetBool("isDead", true);
         SafeSetBool("isIdle", false);
         SafeSetBool("isRunning", false);
 
-        Debug.Log("💤 Fantasma aturdida");
+        Debug.Log($"💤 Fantasma aturdida durante 5s (velocidad original = {previousSpeed})");
 
-        // Assuming death animation clip length is 5 seconds
-        yield return new WaitForSeconds(5f);
+        // Esperar duración del estuneo
+        yield return new WaitForSeconds(10f);
 
-        // Reset dead to false after animation completes so it doesn't loop
+        // ✅ Recuperar estado y velocidad
         SafeSetBool("isDead", false);
-
-        isStunned = false;
-
         SafeSetBool("isIdle", true);
 
+        isStunned = false;
         hasAttacked = false;
-        Debug.Log("💥 Fantasma recuperada");
+
+        // 🔁 Restaurar la velocidad que tenía antes
+        moveSpeed = previousSpeed;
+
+        Debug.Log($"💥 Fantasma recuperada, velocidad restaurada a {moveSpeed}");
     }
 
     public void SetVisible(bool visible)
@@ -587,7 +621,7 @@ public class Ghost : MonoBehaviour
     }
     public void UpdateSpeed(int itemCount)
     {
-        moveSpeed = 1f + itemCount; // Velocidad base 1 + cantidad de ítems
+        moveSpeed = 0.75f + (itemCount * 0.4f); 
         Debug.Log($"👻 Velocidad actual de la fantasma: {moveSpeed} (por {itemCount} ítems)");
     }
 
@@ -625,5 +659,17 @@ public class Ghost : MonoBehaviour
 
         Debug.Log("✅ Fantasma apareció en el target mirando al jugador con giro 180°");
     }
+
+    void ReloadScene()
+    {
+        UnityEngine.SceneManagement.SceneManager.LoadScene(sceneToReload);
+    }
+
+    IEnumerator DelayedSceneReload(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        ReloadScene();
+    }
+
 
 }
